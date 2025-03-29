@@ -6,12 +6,26 @@ from PIL import Image, ImageTk  # Importa a biblioteca Pillow para manipular ima
 
 # Conexão com o banco de dados MySQL
 def conectar_bd():
-    return mysql.connector.connect(
-        host="localhost",
-        user="root",
-        password="vertrigo",
-        database="vendas_db"
-    )
+    try:
+        return mysql.connector.connect(
+            host="127.0.0.1",
+            user="root",
+            password="vertrigo",
+            database="vendas_db",
+            port=3306,  # Porta padrão do MySQL
+            auth_plugin='mysql_native_password'
+        )
+    except mysql.connector.Error as err:
+        messagebox.showerror("Erro", f"Erro ao conectar ao banco de dados: {err}")
+        raise
+
+# Testa a conexão com o banco de dados
+try:
+    conexao = conectar_bd()
+    print("Conexão com o banco de dados bem-sucedida!")
+    conexao.close()
+except mysql.connector.Error as err:
+    print(f"Erro ao conectar ao banco de dados: {err}")
 
 # Função para aplicar a máscara de telefone
 def formatar_telefone(event=None):
@@ -57,6 +71,7 @@ def registrar_venda():
     if not re.match(r'^\(\d{2}\) \d{4,5}-\d{4}$', telefone):
         messagebox.showerror("Erro", "Número de telefone inválido! Use o formato (DDD) 12345-6789.")
         return
+
     if not valor.startswith("R$"):
         messagebox.showerror("Erro", "Valor inválido! O campo deve incluir o símbolo 'R$'.")
         return
@@ -110,20 +125,15 @@ def editar_venda():
         item_selecionado = tabela.selection()[0]  # Obtém o item selecionado na tabela
         valores = tabela.item(item_selecionado, "values")  # Obtém os valores do item selecionado
         id_venda = valores[0]
-
         # Preenche os campos de entrada com os valores da venda selecionada
         nome_entry.delete(0, tk.END)
         nome_entry.insert(0, valores[1])
-
         telefone_entry.delete(0, tk.END)
         telefone_entry.insert(0, valores[2])
-
         quantidade_entry.delete(0, tk.END)
         quantidade_entry.insert(0, valores[3])
-
         valor_entry.delete(0, tk.END)
         valor_entry.insert(0, valores[4])
-
         # Atualiza o botão "Registrar Venda" para "Salvar Alterações"
         registrar_button.config(text="Salvar Alterações", command=lambda: salvar_alteracoes(id_venda))
     except IndexError:
@@ -140,6 +150,7 @@ def salvar_alteracoes(id_venda):
     if not re.match(r'^\(\d{2}\) \d{4,5}-\d{4}$', telefone):
         messagebox.showerror("Erro", "Número de telefone inválido! Use o formato (DDD) 12345-6789.")
         return
+
     if not valor.startswith("R$"):
         messagebox.showerror("Erro", "Valor inválido! O campo deve incluir o símbolo 'R$'.")
         return
@@ -158,16 +169,37 @@ def salvar_alteracoes(id_venda):
             conexao.close()
             messagebox.showinfo("Sucesso", "Venda atualizada com sucesso!")
             atualizar_tabela()
-
             # Restaura o botão "Salvar Alterações" para "Registrar Venda"
             registrar_button.config(text="Registrar Venda", command=registrar_venda)
-
             # Limpa os campos após salvar as alterações
             limpar_campos()
         except mysql.connector.Error as err:
             messagebox.showerror("Erro", f"Erro ao atualizar venda: {err}")
     else:
         messagebox.showerror("Erro", "Preencha todos os campos!")
+
+# Função para deletar uma venda selecionada
+def deletar_venda():
+    try:
+        item_selecionado = tabela.selection()[0]  # Obtém o item selecionado na tabela
+        valores = tabela.item(item_selecionado, "values")  # Obtém os valores do item selecionado
+        id_venda = valores[0]  # Obtém o ID da venda
+        # Confirmação antes de deletar
+        resposta = confirmacao_personalizada(f"Tem certeza que deseja deletar a venda com ID {id_venda}?")
+        if resposta:
+            # Remove do banco de dados
+            conexao = conectar_bd()
+            cursor = conexao.cursor()
+            cursor.execute("DELETE FROM vendas WHERE id = %s", (id_venda,))
+            conexao.commit()
+            conexao.close()
+            # Remove da tabela
+            tabela.delete(item_selecionado)
+            messagebox.showinfo("Sucesso", "Venda deletada com sucesso!")
+    except IndexError:
+        messagebox.showerror("Erro", "Selecione uma venda para deletar!")
+    except mysql.connector.Error as err:
+        messagebox.showerror("Erro", f"Erro ao deletar venda: {err}")
 
 # Função para ordenar a tabela por uma coluna
 def ordenar_tabela_por_coluna(coluna, ordem_atual):
@@ -192,51 +224,38 @@ def configurar_ordenacao():
     estado_ordenacao = {"ID": False, "Nome": False}  # False = Ascendente, True = Descendente
 
     def ao_clicar_no_cabecalho(event):
-        coluna = tabela.identify_column(event.x)  # Identifica a coluna clicada
-        if coluna == "#1":  # Coluna "ID" (primeira coluna)
-            estado_ordenacao["ID"] = not estado_ordenacao["ID"]  # Alterna o estado
-            ordenar_tabela_por_coluna(0, estado_ordenacao["ID"])  # Ordena pela coluna "ID"
-        elif coluna == "#2":  # Coluna "Nome" (segunda coluna)
-            estado_ordenacao["Nome"] = not estado_ordenacao["Nome"]  # Alterna o estado
-            ordenar_tabela_por_coluna(1, estado_ordenacao["Nome"])  # Ordena pela coluna "Nome"
+        # Verifica se o clique foi no cabeçalho
+        if tabela.identify_region(event.x, event.y) == "heading":
+            coluna = tabela.identify_column(event.x)  # Identifica a coluna clicada
+            if coluna == "#1":  # Coluna "ID" (primeira coluna)
+                estado_ordenacao["ID"] = not estado_ordenacao["ID"]  # Alterna o estado
+                ordenar_tabela_por_coluna(0, estado_ordenacao["ID"])  # Ordena pela coluna "ID"
+            elif coluna == "#2":  # Coluna "Nome" (segunda coluna)
+                estado_ordenacao["Nome"] = not estado_ordenacao["Nome"]  # Alterna o estado
+                ordenar_tabela_por_coluna(1, estado_ordenacao["Nome"])  # Ordena pela coluna "Nome"
 
     # Vincula o evento de clique no cabeçalho
     tabela.bind("<Button-1>", ao_clicar_no_cabecalho)
 
 # Atualize a função criar_janela_principal
 def criar_janela_principal():
-    global nome_entry, telefone_entry, quantidade_entry, valor_entry, tabela, registrar_button
-
+    global nome_entry, telefone_entry, quantidade_entry, valor_entry, tabela, registrar_button, janela_principal
     janela_principal = tk.Tk()
     janela_principal.title("Sistema de Vendas")
     largura = 800
     altura = 600
     janela_principal.resizable(True, True)  # Permite redimensionar a janela
     centralizar_janela(janela_principal, largura, altura)
-
     # Aplica o tema baseado no tema do Windows
     aplicar_tema(janela_principal)
 
     frame = tk.Frame(janela_principal)
     frame.pack(expand=True, fill=tk.BOTH)  # Expande o frame principal para preencher a janela
 
-    # Adiciona a logo no cabeçalho
+    # Adiciona um título no cabeçalho
     header_frame = tk.Frame(frame)
     header_frame.pack(pady=10)
-
-    try:
-        # Carrega a imagem da logo com transparência
-        logo_image = Image.open("logo.png").convert("RGBA")  # Garante que a imagem seja carregada com transparência
-        logo_image = logo_image.resize((200, 100), Image.Resampling.LANCZOS)  # Redimensiona a imagem (opcional)
-        logo_photo = ImageTk.PhotoImage(logo_image)
-
-        # Exibe a imagem no cabeçalho
-        logo_label = tk.Label(header_frame, image=logo_photo, bg=frame["bg"])  # Usa o mesmo fundo do frame
-        logo_label.image = logo_photo  # Mantém uma referência para evitar que a imagem seja coletada pelo garbage collector
-        logo_label.pack()
-    except FileNotFoundError:
-        # Caso a imagem não seja encontrada, exibe um texto alternativo
-        tk.Label(header_frame, text="O Melhor Chopp", font=("Arial", 24), bg=frame["bg"]).pack()
+    tk.Label(header_frame, text="Sistema de Vendas", font=("Arial", 24), bg="white").pack()
 
     # Adicionando campos de entrada e centralizando os elementos
     input_frame = tk.Frame(frame)
@@ -248,8 +267,8 @@ def criar_janela_principal():
 
     tk.Label(input_frame, text="Telefone").grid(row=1, column=0, padx=5, pady=5)
     telefone_entry = tk.Entry(input_frame)
-    telefone_entry.grid(row=1, column=1, padx=5, pady=5)
     telefone_entry.bind("<KeyRelease>", formatar_telefone)
+    telefone_entry.grid(row=1, column=1, padx=5, pady=5)
 
     tk.Label(input_frame, text="Quantidade").grid(row=2, column=0, padx=5, pady=5)
     quantidade_entry = tk.Entry(input_frame)
@@ -257,8 +276,8 @@ def criar_janela_principal():
 
     tk.Label(input_frame, text="Valor (R$)").grid(row=3, column=0, padx=5, pady=5)
     valor_entry = tk.Entry(input_frame)
-    valor_entry.grid(row=3, column=1, padx=5, pady=5)
     valor_entry.bind("<KeyRelease>", formatar_valor)
+    valor_entry.grid(row=3, column=1, padx=5, pady=5)
 
     # Botões
     button_frame = tk.Frame(input_frame)
@@ -268,6 +287,8 @@ def criar_janela_principal():
     registrar_button.pack(pady=5)
 
     tk.Button(button_frame, text="Editar Venda", command=editar_venda, width=15).pack(pady=5)
+
+    tk.Button(button_frame, text="Deletar Venda", command=deletar_venda, width=15).pack(pady=5)
 
     # Tabela para exibição de vendas
     tabela_frame = tk.Frame(frame)
@@ -332,6 +353,43 @@ def aplicar_tema(janela):
     estilo.theme_use("clam")
     estilo.configure("Treeview", background="white", foreground="black", fieldbackground="white")
     estilo.configure("Treeview.Heading", background="lightgray", foreground="black")
+
+def confirmacao_personalizada(mensagem):
+    # Cria uma nova janela de confirmação
+    confirm_window = tk.Toplevel()
+    confirm_window.title("Confirmação")
+    confirm_window.geometry("300x150")
+    confirm_window.resizable(False, False)
+    confirm_window.grab_set()  # Bloqueia a interação com a janela principal
+
+    # Centraliza a janela de confirmação em relação à janela principal
+    largura = 300
+    altura = 150
+    x = janela_principal.winfo_x() + (janela_principal.winfo_width() // 2) - (largura // 2)
+    y = janela_principal.winfo_y() + (janela_principal.winfo_height() // 2) - (altura // 2)
+    confirm_window.geometry(f"{largura}x{altura}+{x}+{y}")
+
+    # Aplica o mesmo tema do programa
+    aplicar_tema(confirm_window)
+
+    # Adiciona a mensagem
+    tk.Label(confirm_window, text=mensagem, wraplength=250, font=("Arial", 12), bg="white").pack(pady=20)
+
+    # Variável para armazenar a resposta
+    resposta = tk.BooleanVar(value=False)
+
+    # Botões com "Não" à esquerda e "Sim" à direita
+    button_frame = tk.Frame(confirm_window, bg="white")
+    button_frame.pack(pady=10)
+
+    tk.Button(button_frame, text="Não", command=lambda: (resposta.set(False), confirm_window.destroy())).pack(side=tk.LEFT, padx=10)
+    tk.Button(button_frame, text="Sim", command=lambda: (resposta.set(True), confirm_window.destroy())).pack(side=tk.RIGHT, padx=10)
+
+    # Aguarda a resposta
+    confirm_window.wait_window()
+    return resposta.get()
+
+
 
 # Executa a janela principal diretamente
 criar_janela_principal()
