@@ -2,6 +2,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 import mysql.connector
 import re  # Para validar e formatar o telefone e o valor
+from PIL import Image, ImageTk  # Importa a biblioteca Pillow para manipular imagens
 
 # Conexão com o banco de dados MySQL
 def conectar_bd():
@@ -168,7 +169,41 @@ def salvar_alteracoes(id_venda):
     else:
         messagebox.showerror("Erro", "Preencha todos os campos!")
 
-# Função para criar a janela principal
+# Função para ordenar a tabela por uma coluna
+def ordenar_tabela_por_coluna(coluna, ordem_atual):
+    # Obtém todos os itens da tabela
+    itens = tabela.get_children()
+    # Extrai os valores da coluna e ordena
+    dados_ordenados = sorted(
+        [(tabela.item(item, "values"), item) for item in itens],
+        key=lambda x: int(x[0][coluna]) if coluna == 0 else x[0][coluna].lower() if isinstance(x[0][coluna], str) else x[0][coluna],
+        reverse=ordem_atual  # Inverte a ordem se for descendente
+    )
+    # Remove os itens existentes na tabela
+    for item in itens:
+        tabela.delete(item)
+    # Reinsere os itens ordenados
+    for valores, item in dados_ordenados:
+        tabela.insert("", tk.END, values=valores)
+
+# Função para alternar a ordenação ao clicar no cabeçalho
+def configurar_ordenacao():
+    # Estado de ordenação para cada coluna
+    estado_ordenacao = {"ID": False, "Nome": False}  # False = Ascendente, True = Descendente
+
+    def ao_clicar_no_cabecalho(event):
+        coluna = tabela.identify_column(event.x)  # Identifica a coluna clicada
+        if coluna == "#1":  # Coluna "ID" (primeira coluna)
+            estado_ordenacao["ID"] = not estado_ordenacao["ID"]  # Alterna o estado
+            ordenar_tabela_por_coluna(0, estado_ordenacao["ID"])  # Ordena pela coluna "ID"
+        elif coluna == "#2":  # Coluna "Nome" (segunda coluna)
+            estado_ordenacao["Nome"] = not estado_ordenacao["Nome"]  # Alterna o estado
+            ordenar_tabela_por_coluna(1, estado_ordenacao["Nome"])  # Ordena pela coluna "Nome"
+
+    # Vincula o evento de clique no cabeçalho
+    tabela.bind("<Button-1>", ao_clicar_no_cabecalho)
+
+# Atualize a função criar_janela_principal
 def criar_janela_principal():
     global nome_entry, telefone_entry, quantidade_entry, valor_entry, tabela, registrar_button
 
@@ -179,8 +214,29 @@ def criar_janela_principal():
     janela_principal.resizable(True, True)  # Permite redimensionar a janela
     centralizar_janela(janela_principal, largura, altura)
 
+    # Aplica o tema baseado no tema do Windows
+    aplicar_tema(janela_principal)
+
     frame = tk.Frame(janela_principal)
     frame.pack(expand=True, fill=tk.BOTH)  # Expande o frame principal para preencher a janela
+
+    # Adiciona a logo no cabeçalho
+    header_frame = tk.Frame(frame)
+    header_frame.pack(pady=10)
+
+    try:
+        # Carrega a imagem da logo com transparência
+        logo_image = Image.open("logo.png").convert("RGBA")  # Garante que a imagem seja carregada com transparência
+        logo_image = logo_image.resize((200, 100), Image.Resampling.LANCZOS)  # Redimensiona a imagem (opcional)
+        logo_photo = ImageTk.PhotoImage(logo_image)
+
+        # Exibe a imagem no cabeçalho
+        logo_label = tk.Label(header_frame, image=logo_photo, bg=frame["bg"])  # Usa o mesmo fundo do frame
+        logo_label.image = logo_photo  # Mantém uma referência para evitar que a imagem seja coletada pelo garbage collector
+        logo_label.pack()
+    except FileNotFoundError:
+        # Caso a imagem não seja encontrada, exibe um texto alternativo
+        tk.Label(header_frame, text="O Melhor Chopp", font=("Arial", 24), bg=frame["bg"]).pack()
 
     # Adicionando campos de entrada e centralizando os elementos
     input_frame = tk.Frame(frame)
@@ -249,6 +305,9 @@ def criar_janela_principal():
 
     atualizar_tabela()
 
+    # Configura a ordenação ao clicar no cabeçalho
+    configurar_ordenacao()
+
     # Vincula o evento de redimensionamento
     janela_principal.bind("<Configure>", ajustar_tamanho)
 
@@ -265,6 +324,14 @@ def ajustar_tamanho(event):
     tabela.column("#3", width=int(largura * 0.2))
     tabela.column("#4", width=int(largura * 0.15))
     tabela.column("#5", width=int(largura * 0.15))
+
+def aplicar_tema(janela):
+    # Define um tema claro como padrão
+    janela.configure(bg="white")
+    estilo = ttk.Style()
+    estilo.theme_use("clam")
+    estilo.configure("Treeview", background="white", foreground="black", fieldbackground="white")
+    estilo.configure("Treeview.Heading", background="lightgray", foreground="black")
 
 # Executa a janela principal diretamente
 criar_janela_principal()
